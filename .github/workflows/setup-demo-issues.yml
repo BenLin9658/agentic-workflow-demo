@@ -1,0 +1,58 @@
+name: Setup Demo Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      recreate:
+        description: 'Force recreate demo issues even if issues already exist'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  issues: write
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for existing issues
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ inputs.recreate }}" = "true" ]; then
+            echo "Force recreate requested. Skipping duplicate check."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            EXISTING=$(gh issue list --repo ${{ github.repository }} --state all --limit 1 --json number --jq 'length')
+            if [ "$EXISTING" -gt "0" ]; then
+              echo "Issues already exist. Skipping creation to avoid duplicates."
+              echo "To recreate, run this workflow with 'recreate' set to true."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Create demo issues from JSON
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          echo "Creating 30 demo issues..."
+
+          TOTAL=$(jq length .github/demo-issues.json)
+          for i in $(seq 0 $((TOTAL - 1))); do
+            TITLE=$(jq -r ".[$i].title" .github/demo-issues.json)
+            BODY=$(jq -r ".[$i].body" .github/demo-issues.json)
+            echo "Creating issue $((i + 1))/$TOTAL: $TITLE"
+            gh issue create --repo ${{ github.repository }} \
+              --title "$TITLE" \
+              --body "$BODY"
+          done
+
+          echo "✅ All $TOTAL issues created successfully!"
